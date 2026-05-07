@@ -10,7 +10,7 @@ import { testConnection } from "./config/qdrant.js";
 const app = express();
 
 app.use(cors({
-    origin : process.env.FRONTEND_URL || "http://localhost:5173"
+    origin : "https://notebook-llm-sigma.vercel.app/"
 }))
 app.use(express.json());
 
