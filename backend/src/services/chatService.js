@@ -14,48 +14,55 @@ export async function chat(userQuery, history = []) {
     baseURL: "https://api.groq.com/openai/v1",
   });
 
-  const vectorStore = await QdrantVectorStore.fromExistingCollection(
-    embeddings,
-    {
-      url: process.env.QDRANT_URL,
-      apiKey: process.env.QDRANT_API_KEY,
-      collectionName: COLLECTION_NAME,
-    },
-  );
+  let contextBlock = "";
+  let sources = [];
 
-  const results = await vectorStore.similaritySearch(userQuery, 4);
+  try {
+    const vectorStore = await QdrantVectorStore.fromExistingCollection(
+      embeddings,
+      {
+        url: process.env.QDRANT_URL,
+        apiKey: process.env.QDRANT_API_KEY,
+        collectionName: COLLECTION_NAME,
+      },
+    );
 
-  const context = results
-    .map(
-      (doc, i) =>
-        `[Source ${i + 1} | Page ${doc.metadata.loc?.pageNumber || "N/A"}]\n${doc.pageContent}`,
-    )
-    .join("\n\n---\n\n");
+    const results = await vectorStore.similaritySearch(userQuery, 4);
 
-  const systemPrompt = `You are a helpful assistant. Use ONLY the following context to answer.
-  If not found, say you don't know. Always cite the Source number.
+    if (results.length > 0) {
+      contextBlock = results
+        .map(
+          (doc, i) =>
+            `[Source ${i + 1} | Page ${doc.metadata.loc?.pageNumber || "N/A"}]\n${doc.pageContent}`,
+        )
+        .join("\n\n---\n\n");
+
+      sources = results.map((r) => ({
+        text: r.pageContent,
+        page: r.metadata.loc?.pageNumber,
+      }));
+    }
+  } catch {}
+
+  const systemPrompt = contextBlock
+    ? `You are a helpful assistant. Use ONLY the following context to answer. If the answer is not in the context, say you don't know. Always cite the Source number.
 
 CONTEXT:
-${context}`;
-
-  const messages = [
-    { role: "system", content: systemPrompt },
-    ...history.slice(-4),
-    { role: "user", content: userQuery },
-  ];
-
+${contextBlock}`
+    : `You are a helpful AI assistant. No document has been uploaded. Politely let the user know that no document has been uploaded yet, and ask them to upload a PDF, TXT, or CSV file to get document-grounded answers.`;
   const response = await groq.chat.completions.create({
     model: "llama-3.3-70b-versatile",
-    messages,
+    messages: [
+      { role: "system", content: systemPrompt },
+      ...history.slice(-4),
+      { role: "user", content: userQuery },
+    ],
     temperature: 0.1,
     max_tokens: 1024,
   });
 
   return {
     answer: response.choices[0].message.content,
-    sources: results.map((r) => ({
-      text: r.pageContent,
-      page: r.metadata.loc?.pageNumber,
-    })),
+    sources,
   };
 }
