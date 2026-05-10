@@ -16,6 +16,7 @@ export async function chat(userQuery, history = []) {
 
   let contextBlock = "";
   let sources = [];
+  let docUploaded = false;
 
   try {
     const vectorStore = await QdrantVectorStore.fromExistingCollection(
@@ -28,13 +29,11 @@ export async function chat(userQuery, history = []) {
     );
 
     const results = await vectorStore.similaritySearch(userQuery, 4);
+    docUploaded = true;
 
     if (results.length > 0) {
       contextBlock = results
-        .map(
-          (doc, i) =>
-            `[Source ${i + 1} | Page ${doc.metadata.loc?.pageNumber || "N/A"}]\n${doc.pageContent}`,
-        )
+        .map((doc, i) => `[Source ${i + 1} | Page ${doc.metadata.loc?.pageNumber || "N/A"}]\n${doc.pageContent}`)
         .join("\n\n---\n\n");
 
       sources = results.map((r) => ({
@@ -42,14 +41,23 @@ export async function chat(userQuery, history = []) {
         page: r.metadata.loc?.pageNumber,
       }));
     }
-  } catch {}
+  } catch {
+    docUploaded = false;
+  }
 
-  const systemPrompt = contextBlock
-    ? `You are a helpful assistant. Use ONLY the following context to answer. If the answer is not in the context, say you don't know. Always cite the Source number.
+  let systemPrompt;
+
+  if (!docUploaded) {
+    systemPrompt = `You are a helpful assistant. No document has been uploaded yet. No matter what the user asks, do not answer any questions. Only tell them to upload a PDF, TXT, or CSV file first.`;
+  } else if (contextBlock) {
+    systemPrompt = `You are a helpful assistant. Answer ONLY using the context below. If the answer is not in the context, say you don't know. Always cite the Source number.
 
 CONTEXT:
-${contextBlock}`
-    : `You are a helpful AI assistant. No document has been uploaded. Politely let the user know that no document has been uploaded yet, and ask them to upload a PDF, TXT, or CSV file to get document-grounded answers.`;
+${contextBlock}`;
+  } else {
+    systemPrompt = `You are a helpful assistant. A document is uploaded but no relevant content was found for this question. Tell the user no relevant information was found in the document for their query.`;
+  }
+
   const response = await groq.chat.completions.create({
     model: "llama-3.3-70b-versatile",
     messages: [
