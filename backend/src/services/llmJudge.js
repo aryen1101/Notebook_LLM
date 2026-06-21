@@ -1,6 +1,6 @@
 import { judgeClient, JUDGE_MODEL } from "../config/gemini.js";
 
-export async function judgeClient(question, context, answer) {
+export async function judgeAnswer(question, context, answer) {
   try {
     const response = await judgeClient.chat.completions.create({
       model: JUDGE_MODEL,

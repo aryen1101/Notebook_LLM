@@ -1,4 +1,4 @@
-import { CHAT_MODEL, groq } from "../config/groq";
+import { CHAT_MODEL, groq } from "../config/groq.js";
 
 export async function detectLanguage(text) {
   const response = await groq.chat.completions.create({
@@ -38,6 +38,8 @@ export async function translate(text, targetLanguage) {
     temperature: 0,
     max_tokens: 1024,
   });
+
+  return response.choices[0].message.content.trim();
 }
 
 export async function normalizeText(text) {

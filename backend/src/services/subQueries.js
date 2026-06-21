@@ -1,4 +1,4 @@
-import { groq, CHAT_MODEL } from "../config/groq";
+import { groq, CHAT_MODEL } from "../config/groq.js";
 
 export async function decomposeQuery(query) {
   try {

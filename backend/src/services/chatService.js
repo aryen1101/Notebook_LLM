@@ -2,9 +2,9 @@ import { HuggingFaceInferenceEmbeddings } from "@langchain/community/embeddings/
 import { QdrantVectorStore } from "@langchain/qdrant";
 import { COLLECTION_NAME } from "../config/qdrant.js";
 import { groq, CHAT_MODEL } from "../config/groq.js";
-import { detectLanguage, translate, normalizeText } from "./translator.js";
-import { rewriteQuery } from "./queryRewriter.js";
-import { decomposeQuery } from "./subQuery.js";
+import { detectLanguage, translate } from "./translator.js";
+import { rewriteQuery } from "./queryRewriting.js";
+import { decomposeQuery } from "./subQueries.js";
 import { judgeAnswer, isContextRelevant } from "./llmJudge.js";
 
 export async function chat(userQuery, history = []) {
@@ -14,11 +14,16 @@ export async function chat(userQuery, history = []) {
   });
 
 
-  const language = await detectLanguage(userQuery);
+  const looksEnglish = /^[\x00-\x7F]+$/.test(userQuery);
+  let language = "English";
+  let englishQuery = userQuery;
+  if (!looksEnglish) {
+    language = await detectLanguage(userQuery);
+    if (!/english/i.test(language)) {
+      englishQuery = await translate(userQuery, "English");
+    }
+  }
   const isEnglish = /english/i.test(language);
-  const englishQuery = isEnglish
-    ? await normalizeText(userQuery)
-    : await translate(userQuery, "English");
 
   const searchQuery = await rewriteQuery(englishQuery, history);
 
@@ -40,7 +45,6 @@ export async function chat(userQuery, history = []) {
       subQueries.map((q) => vectorStore.similaritySearch(q, 4)),
     );
 
-    // Merge all hits and de-duplicate by chunk text (sub-queries often overlap).
     const seen = new Set();
     const merged = [];
     for (const doc of perQuery.flat()) {
@@ -63,13 +67,6 @@ export async function chat(userQuery, history = []) {
         text: r.pageContent,
         page: r.metadata.loc?.pageNumber,
       }));
-
-
-      contextRelevant = await isContextRelevant(englishQuery, contextBlock);
-      if (!contextRelevant) {
-        contextBlock = "";
-        sources = [];
-      }
     }
   } catch {
     docUploaded = false;
@@ -102,8 +99,24 @@ ${contextBlock}`;
     return response.choices[0].message.content;
   }
 
-  let answer = await generate();
-
+  let answer;
+  if (docUploaded && contextBlock) {
+    const [genAnswer, relevant] = await Promise.all([
+      generate(),
+      isContextRelevant(englishQuery, contextBlock),
+    ]);
+    contextRelevant = relevant;
+    if (!contextRelevant) {
+      answer =
+        "I couldn't find information relevant to your question in the uploaded document.";
+      sources = [];
+      contextBlock = "";
+    } else {
+      answer = genAnswer;
+    }
+  } else {
+    answer = await generate();
+  }
 
   let judgment = null;
   if (docUploaded && contextBlock) {
