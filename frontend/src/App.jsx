@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Send, Trash2, BookOpen, FileUp } from "lucide-react";
+import { Send, Trash2, BookOpen, FileUp, Languages, Layers, ShieldCheck } from "lucide-react";
 import { UploadZone } from "./components/UploadZone";
 import { ChatMessage, TypingIndicator } from "./components/ChatMessage";
 import { sendChat, getStatus, deleteDocument } from "./lib/api";
@@ -77,7 +77,16 @@ export default function App() {
       const result = await sendChat(query, history);
       setMessages([
         ...snapshot,
-        { role: "assistant", content: result.answer, sources: result.sources, id: Date.now() + 1 },
+        {
+          role: "assistant",
+          content: result.answer,
+          sources: result.sources,
+          judgment: result.judgment,
+          rewrittenQuery: result.rewrittenQuery,
+          subQueries: result.subQueries,
+          language: result.language,
+          id: Date.now() + 1,
+        },
       ]);
     } catch (e) {
       setMessages([
@@ -122,7 +131,7 @@ export default function App() {
         </div>
 
         <div className="mt-auto px-4 py-4 border-t border-gray-800">
-          <p className="text-gray-700 text-xs text-center">Powered by Groq + Qdrant</p>
+          <p className="text-gray-700 text-xs text-center">Groq · Qdrant · LLM-as-judge</p>
         </div>
       </aside>
 
@@ -160,9 +169,25 @@ export default function App() {
               </h2>
               <p className="text-gray-500 text-sm max-w-xs leading-relaxed">
                 {docReady
-                  ? "Ask anything about your document. Answers are grounded in its content."
-                  : "Upload a PDF, TXT, or CSV for document-grounded answers, or just ask a question."}
+                  ? "Ask anything about your document. Every answer is grounded in its content and verified before you see it."
+                  : "Upload a PDF, TXT, or CSV to get document-grounded answers."}
               </p>
+
+              <div className="mt-8 flex flex-wrap items-center justify-center gap-2 max-w-sm">
+                {[
+                  { icon: Languages, label: "Multilingual" },
+                  { icon: Layers, label: "Sub-query retrieval" },
+                  { icon: ShieldCheck, label: "Grounded & verified" },
+                ].map(({ icon: Icon, label }) => (
+                  <span
+                    key={label}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-900 border border-gray-800 text-gray-400 text-xs"
+                  >
+                    <Icon className="w-3.5 h-3.5 text-violet-400" />
+                    {label}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
           {messages.map((msg) => <ChatMessage key={msg.id} message={msg} />)}
