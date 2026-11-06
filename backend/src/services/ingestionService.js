@@ -5,16 +5,13 @@ import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import { Document } from "@langchain/core/documents";
 import { parse } from "csv-parse/sync";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
-import { HuggingFaceInferenceEmbeddings } from "@langchain/community/embeddings/hf";
+import { HuggingFaceTransformersEmbeddings } from "@langchain/community/embeddings/huggingface_transformers";
 import { QdrantVectorStore } from "@langchain/qdrant";
 
 import { resetCollection, COLLECTION_NAME } from "../config/qdrant.js";
 
 function getEmbeddings() {
-  return new HuggingFaceInferenceEmbeddings({
-    apiKey: process.env.HF_API_KEY,
-    model: "BAAI/bge-small-en-v1.5",
-  });
+  return new HuggingFaceTransformersEmbeddings({ model: "Xenova/bge-small-en-v1.5" });
 }
 
 async function loadPDF(filePath) {

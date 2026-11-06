@@ -5,4 +5,6 @@ export const groq = new OpenAI({
   baseURL: "https://api.groq.com/openai/v1",
 });
 
-export const CHAT_MODEL = "llama-3.3-70b-versatile";
+// llama-3.3-70b-versatile is no longer available to some developer accounts.
+// GPT OSS 120B is Groq's recommended replacement for this workload.
+export const CHAT_MODEL = "openai/gpt-oss-120b";

@@ -53,7 +53,7 @@ flowchart LR
     G2 --> A
 ```
 
-**On upload:** the file is loaded, chunked, embedded with HuggingFace, and stored as vectors in Qdrant.
+**On upload:** the file is loaded, chunked, embedded locally with Transformers.js, and stored as vectors in Qdrant.
 
 ---
 
@@ -63,16 +63,16 @@ flowchart LR
 |---|---|
 | **Frontend** | Vite + React + Tailwind CSS |
 | **Backend** | Node.js + Express |
-| **Answer LLM** | Groq `llama-3.3-70b-versatile` |
+| **Answer LLM** | Groq `openai/gpt-oss-120b` |
 | **Judge LLM** | Google `gemini-2.0-flash` *(falls back to Groq if no Gemini key)* |
-| **Embeddings** | HuggingFace `BAAI/bge-small-en-v1.5` (384-dim) |
+| **Embeddings** | Local `Xenova/bge-small-en-v1.5` (384-dim) |
 | **Vector DB** | Qdrant Cloud |
 
 ---
 
 ## 🚀 Quick Start
 
-> **Prerequisites:** Node.js 18+, and free API keys from [Groq](https://console.groq.com), [HuggingFace](https://huggingface.co/settings/tokens), and a [Qdrant Cloud](https://cloud.qdrant.io) cluster. A [Google AI Studio](https://aistudio.google.com/apikey) key is optional (enables the Gemini judge; otherwise it falls back to Groq).
+> **Prerequisites:** Node.js 18+, free API keys from [Groq](https://console.groq.com) and a [Qdrant Cloud](https://cloud.qdrant.io) cluster. A [Google AI Studio](https://aistudio.google.com/apikey) key is optional (enables the Gemini judge; otherwise it falls back to Groq). The embedding model runs locally and does not require Hugging Face credits.
 
 ### 1. Backend
 
@@ -89,7 +89,6 @@ npm run dev               # → http://localhost:3000
 QDRANT_URL=https://<your-cluster>.cloud.qdrant.io:6333   # ⚠️ include the :6333 port
 QDRANT_API_KEY=<your-qdrant-key>
 QDRANT_COLLECTION_NAME=<collection-name>
-HF_API_KEY=<your-huggingface-key>
 GROQ_API_KEY=<your-groq-key>
 GEMINI_API_KEY=<your-gemini-key>     # optional
 PORT=3000

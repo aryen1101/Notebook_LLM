@@ -4,7 +4,6 @@ import remarkGfm from "remark-gfm";
 import {
   ChevronDown,
   ChevronUp,
-  FileText,
   Bot,
   User,
   ShieldCheck,

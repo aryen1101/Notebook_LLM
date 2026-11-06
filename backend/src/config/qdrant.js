@@ -17,7 +17,9 @@ export async function testConnection() {
   } catch (err) {
     console.error("Failed to connect to Qdrant Cloud:", err.message);
     console.error("Check your QDRANT_URL and QDRANT_API_KEY in .env");
-    process.exit(1);
+    // Keep the HTTP process alive so the platform can report health and the
+    // service can recover if Qdrant is temporarily unavailable.
+    throw err;
   }
 }
 

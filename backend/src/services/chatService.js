@@ -1,4 +1,4 @@
-import { HuggingFaceInferenceEmbeddings } from "@langchain/community/embeddings/hf";
+import { HuggingFaceTransformersEmbeddings } from "@langchain/community/embeddings/huggingface_transformers";
 import { QdrantVectorStore } from "@langchain/qdrant";
 import { COLLECTION_NAME } from "../config/qdrant.js";
 import { groq, CHAT_MODEL } from "../config/groq.js";
@@ -8,10 +8,7 @@ import { decomposeQuery } from "./subQueries.js";
 import { judgeAnswer, isContextRelevant } from "./llmJudge.js";
 
 export async function chat(userQuery, history = []) {
-  const embeddings = new HuggingFaceInferenceEmbeddings({
-    apiKey: process.env.HF_API_KEY,
-    model: "BAAI/bge-small-en-v1.5",
-  });
+  const embeddings = new HuggingFaceTransformersEmbeddings({ model: "Xenova/bge-small-en-v1.5" });
 
 
   const looksEnglish = /^[\x00-\x7F]+$/.test(userQuery);

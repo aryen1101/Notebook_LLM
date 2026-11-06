@@ -3,7 +3,24 @@ import axios from "axios";
 const BASE_URL = (
   import.meta.env.VITE_API_URL || "https://notebook-llm-2.onrender.com"
 ).replace(/\/$/, "");
-const api = axios.create({ baseURL: BASE_URL });
+
+// Render's free tier spins the backend down after inactivity; the first request
+// can take ~30-60s to wake it. Give requests a generous timeout and retry once
+// on network/timeout errors so a cold start doesn't surface as a failed request.
+const api = axios.create({ baseURL: BASE_URL, timeout: 90000 });
+
+api.interceptors.response.use(undefined, async (error) => {
+  const cfg = error.config;
+  const isColdStart =
+    error.code === "ECONNABORTED" || // timeout
+    error.code === "ERR_NETWORK" || // no response (server waking / no CORS headers)
+    !error.response;
+  if (cfg && isColdStart && !cfg._retried) {
+    cfg._retried = true;
+    return api(cfg);
+  }
+  return Promise.reject(error);
+});
 
 export async function uploadDocument(file, onProgress) {
   const formData = new FormData();

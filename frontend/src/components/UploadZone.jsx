@@ -16,6 +16,10 @@ export function UploadZone({ onUploadSuccess, docReady, onRemove, docInfo }) {
       setError("Only PDF, TXT, and CSV files are supported.");
       return;
     }
+    if (file.size > 20 * 1024 * 1024) {
+      setError("Files must be smaller than 20 MB.");
+      return;
+    }
     setError(null);
     setUploading(true);
     setProgress(0);
@@ -97,6 +101,12 @@ export function UploadZone({ onUploadSuccess, docReady, onRemove, docInfo }) {
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
+        role="button"
+        tabIndex={uploading ? -1 : 0}
+        aria-label="Upload a PDF, TXT, or CSV document"
+        onKeyDown={(e) => {
+          if ((e.key === "Enter" || e.key === " ") && !uploading) inputRef.current?.click();
+        }}
         className={`rounded-xl border-2 border-dashed p-6 text-center cursor-pointer transition-all duration-200 ${
           dragging ? "border-violet-500 bg-violet-500/10" : "border-gray-700 hover:border-gray-500 hover:bg-gray-700/30"
         } ${uploading ? "cursor-not-allowed" : ""}`}
@@ -123,7 +133,7 @@ export function UploadZone({ onUploadSuccess, docReady, onRemove, docInfo }) {
               <Upload className="w-5 h-5 text-gray-400" />
             </div>
             <p className="text-gray-300 text-sm font-medium">Drop file here</p>
-            <p className="text-gray-600 text-xs">or click to browse</p>
+            <p className="text-gray-600 text-xs">or click to browse · max 20 MB</p>
             <div className="flex items-center justify-center gap-2 pt-1">
               {["PDF", "TXT", "CSV"].map((ext) => (
                 <span key={ext} className="px-2 py-0.5 bg-gray-700 rounded text-gray-500 text-xs font-mono">{ext}</span>
