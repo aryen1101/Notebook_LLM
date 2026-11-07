@@ -4,6 +4,7 @@ import { UploadZone } from "./components/UploadZone";
 import { ChatMessage, TypingIndicator } from "./components/ChatMessage";
 import { StatusBar } from "./components/StatusBar";
 import { sendChat, getStatus, deleteDocument } from "./lib/api";
+import logo from "./assets/logo.png";
 
 function useLocalStorage(key, initial) {
   const [value, setValue] = useState(() => { try { const stored = localStorage.getItem(key); return stored ? JSON.parse(stored) : initial; } catch { return initial; } });
@@ -43,7 +44,7 @@ export default function App() {
     <div className="app-shell h-screen flex overflow-hidden">
       {sidebarOpen && <button aria-label="Close navigation" className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
       <aside className={`app-sidebar w-72 flex-shrink-0 flex flex-col ${sidebarOpen ? "is-open" : ""}`}>
-        <div className="px-5 py-5 border-b border-white/8"><div className="flex items-center gap-3"><div className="brand-mark w-9 h-9 rounded-xl flex items-center justify-center"><BookOpen className="w-[18px] h-[18px] text-white" /></div><div><h1 className="text-white font-semibold text-base leading-none tracking-tight">NotebookLLM</h1><p className="text-slate-500 text-xs mt-1">Your document workspace</p></div><button aria-label="Close sidebar" className="ml-auto mobile-only text-slate-500 hover:text-white" onClick={() => setSidebarOpen(false)}><X className="w-4 h-4" /></button></div></div>
+        <div className="px-5 py-5 border-b border-white/8"><div className="flex flex-col items-start gap-1"><img src={logo} alt="NotebookLLM" className="w-full h-24 object-contain object-center" /><p className="text-slate-500 text-xs">Your document workspace</p><button aria-label="Close sidebar" className="ml-auto mobile-only text-slate-500 hover:text-white" onClick={() => setSidebarOpen(false)}><X className="w-4 h-4" /></button></div></div>
         <div className="p-4 pt-6"><div className="flex items-center gap-2 mb-3"><FileUp className="w-3.5 h-3.5 text-violet-300" /><p className="source-heading">Source document</p></div><UploadZone onUploadSuccess={handleUploadSuccess} docReady={docReady} onRemove={removeDocument} docInfo={docInfo} /></div>
         <div className="mt-auto px-4 py-4 border-t border-white/8"><div className="flex items-center gap-2 text-slate-600 text-xs"><Activity className="w-3.5 h-3.5 text-emerald-400" /><span>AI pipeline online</span></div><p className="text-slate-700 text-[11px] mt-2">Groq · Qdrant · LLM-as-judge</p></div>
       </aside>
