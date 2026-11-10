@@ -1,57 +1,344 @@
-import { useEffect, useRef, useState } from "react";
-import { Activity, BookOpen, FileUp, Languages, Layers, Menu, Send, ShieldCheck, Sparkles, Trash2, X } from "lucide-react";
-import { UploadZone } from "./components/UploadZone";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Eraser, Menu, PanelRight, RefreshCw, WifiOff } from "lucide-react";
+import { Sidebar } from "./components/Sidebar";
+import { SourcesPanel } from "./components/SourcesPanel";
 import { ChatMessage, TypingIndicator } from "./components/ChatMessage";
+import { Composer } from "./components/Composer";
+import { OnboardingState, ReadyState } from "./components/EmptyState";
 import { StatusBar } from "./components/StatusBar";
-import { sendChat, getStatus, deleteDocument } from "./lib/api";
+import { ConfirmDialog } from "./components/ConfirmDialog";
+import { useLocalStorage } from "./hooks/useLocalStorage";
+import { useMediaQuery } from "./hooks/useMediaQuery";
+import { useBackendStatus } from "./hooks/useBackendStatus";
+import { useUpload } from "./hooks/useUpload";
+import { sendChat, deleteDocument } from "./lib/api";
+import { describeRequestError, displayTitle } from "./lib/format";
+import { applyTheme } from "./lib/theme";
 
-function useLocalStorage(key, initial) {
-  const [value, setValue] = useState(() => { try { const stored = localStorage.getItem(key); return stored ? JSON.parse(stored) : initial; } catch { return initial; } });
-  const set = (newVal) => { setValue(newVal); try { localStorage.setItem(key, JSON.stringify(newVal)); } catch { /* storage is optional */ } };
-  return [value, set];
-}
+let idCounter = 0;
+const newId = () => `${Date.now()}-${idCounter++}`;
 
 export default function App() {
+  // Persisted (same keys as before so existing conversations survive the redesign).
   const [messages, setMessages] = useLocalStorage("rag_messages", []);
   const [docInfo, setDocInfo] = useLocalStorage("rag_doc_info", null);
-  const [docReady, setDocReady] = useState(false);
-  const [input, setInput] = useState("");
-  const [typing, setTyping] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const chatEndRef = useRef(null);
-  const textareaRef = useRef(null);
+  const [theme, setTheme] = useLocalStorage("nl_theme", "system");
+  const [collapsed, setCollapsed] = useLocalStorage("nl_sidebar_collapsed", false);
+
+  const backend = useBackendStatus();
+  const isWide = useMediaQuery("(min-width: 1200px)");
+
+  const [pendingSince, setPendingSince] = useState(null);
+  const [navOpen, setNavOpen] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [activeId, setActiveId] = useState(null);
+  const [highlight, setHighlight] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+  const [justIndexed, setJustIndexed] = useState(false);
+
+  const composerRef = useRef(null);
+  const scrollRef = useRef(null);
   const messagesRef = useRef(messages);
-
   useEffect(() => { messagesRef.current = messages; }, [messages]);
-  useEffect(() => { getStatus().then((s) => setDocReady(s.ready)).catch(() => setDocReady(false)); }, []);
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, typing]);
 
-  const handleUploadSuccess = (info) => { setDocInfo(info); setDocReady(true); setMessages([]); setSidebarOpen(false); };
-  const removeDocument = async () => { try { await deleteDocument(); } catch { /* clear local state even if the backend is unavailable */ } setMessages([]); setDocInfo(null); setDocReady(false); };
-  const sendMessage = async () => {
-    const query = input.trim(); if (!query || typing) return;
-    setInput(""); if (textareaRef.current) textareaRef.current.style.height = "24px";
-    const userMsg = { role: "user", content: query, id: Date.now() }; const snapshot = [...messagesRef.current, userMsg]; setMessages(snapshot); setTyping(true);
+  const typing = pendingSince !== null;
+
+  /* ---------- Theme ---------- */
+  // Initial value is already applied pre-paint by the script in index.html.
+  useEffect(() => { applyTheme(theme); }, [theme]);
+
+  /* ---------- Document state, derived from local info + server status ---------- */
+  const docState = useMemo(() => {
+    if (backend.phase === "connecting" && !backend.checkedAt) return docInfo ? "checking" : "none";
+    if (backend.phase === "offline") return docInfo ? "unverified" : "offline";
+    if (backend.ready) return docInfo ? "ready" : "ready-unknown";
+    return docInfo ? "missing" : "none";
+  }, [backend.phase, backend.ready, backend.checkedAt, docInfo]);
+
+  const hasDoc = Boolean(docInfo) || docState === "ready-unknown";
+
+  /* ---------- Upload ---------- */
+  const handleUploaded = useCallback(async (result, meta) => {
+    setDocInfo({ ...result, originalName: meta.name, fileSize: meta.size, uploadedAt: Date.now() });
+    setMessages([]);
+    setActiveId(null);
+    setHighlight(null);
+    setJustIndexed(true);
+    setTimeout(() => setJustIndexed(false), 1500);
+    await backend.refresh({ quiet: true });
+  }, [setDocInfo, setMessages, backend]);
+
+  const upload = useUpload(handleUploaded);
+
+  const requestUpload = useCallback((file) => {
+    if (!hasDoc || docState === "missing") return upload.start(file);
+    setConfirm({
+      title: "Replace the current document?",
+      body: <>A notebook holds one document. Uploading <strong className="text-ink">{file.name}</strong> removes the current one from the index and clears this conversation.</>,
+      confirmLabel: "Replace document",
+      tone: "primary",
+      onConfirm: async () => { setConfirm(null); upload.start(file); },
+    });
+  }, [hasDoc, docState, upload]);
+
+  /* ---------- Remove / new notebook ---------- */
+  const resetLocal = useCallback(() => {
+    setMessages([]);
+    setDocInfo(null);
+    setActiveId(null);
+    setHighlight(null);
+    setConfirm(null);
+  }, [setMessages, setDocInfo]);
+
+  const removeDocument = useCallback(async () => {
     try {
-      const history = messagesRef.current.slice(-8).map((m) => ({ role: m.role, content: m.content })); const result = await sendChat(query, history);
-      setMessages([...snapshot, { role: "assistant", content: result.answer, sources: result.sources, judgment: result.judgment, rewrittenQuery: result.rewrittenQuery, subQueries: result.subQueries, language: result.language, id: Date.now() + 1 }]);
-    } catch (e) { setMessages([...snapshot, { role: "assistant", content: e.response?.data?.error || "Something went wrong. Please try again.", id: Date.now() + 1 }]); } finally { setTyping(false); }
+      await deleteDocument();
+    } catch (e) {
+      throw new Error(describeRequestError(e, "The server couldn't remove the document."), { cause: e });
+    }
+    resetLocal();
+    await backend.refresh({ quiet: true });
+  }, [resetLocal, backend]);
+
+  const askRemove = () => setConfirm({
+    title: "Remove this document?",
+    body: "It will be deleted from the vector index and this conversation will be cleared. This can't be undone.",
+    confirmLabel: "Remove document",
+    onConfirm: removeDocument,
+    secondary: { label: "Clear from this browser only", onClick: resetLocal },
+  });
+
+  const askNewNotebook = () => {
+    setNavOpen(false);
+    if (!hasDoc && messages.length === 0) { composerRef.current?.focus(); return; }
+    setConfirm({
+      title: "Start a new notebook?",
+      body: hasDoc
+        ? "The server keeps one document at a time, so starting over removes the current document from the index and clears this conversation."
+        : "This clears the current conversation.",
+      confirmLabel: "Start new notebook",
+      onConfirm: hasDoc ? removeDocument : async () => resetLocal(),
+      secondary: hasDoc ? { label: "Clear from this browser only", onClick: resetLocal } : undefined,
+    });
   };
-  const handleKeyDown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
+
+  const askClearChat = () => setConfirm({
+    title: "Clear this conversation?",
+    body: "Your questions and answers will be removed from this browser. The document stays indexed.",
+    confirmLabel: "Clear conversation",
+    onConfirm: async () => { setMessages([]); setActiveId(null); setHighlight(null); setConfirm(null); },
+  });
+
+  /* ---------- Chat ---------- */
+  const ask = useCallback(async (query, base = messagesRef.current) => {
+    if (!query || pendingSince) return;
+    const userMsg = { role: "user", content: query, id: newId() };
+    const snapshot = [...base, userMsg];
+    setMessages(snapshot);
+    setPendingSince(Date.now());
+    setActiveId(null);
+    const history = base.filter((m) => !m.error).slice(-8).map((m) => ({ role: m.role, content: m.content }));
+    try {
+      const result = await sendChat(query, history);
+      setMessages([...snapshot, {
+        role: "assistant", id: newId(), content: result.answer, sources: result.sources, judgment: result.judgment,
+        rewrittenQuery: result.rewrittenQuery, subQueries: result.subQueries, language: result.language,
+      }]);
+    } catch (e) {
+      setMessages([...snapshot, { role: "assistant", id: newId(), error: true, content: describeRequestError(e, "The server couldn't answer this question.") }]);
+    } finally {
+      setPendingSince(null);
+    }
+  }, [pendingSince, setMessages]);
+
+  const regenerate = useCallback((assistantId) => {
+    const list = messagesRef.current;
+    const idx = list.findIndex((m) => m.id === assistantId);
+    const userMsg = list[idx - 1];
+    if (idx < 1 || userMsg?.role !== "user") return;
+    ask(userMsg.content, list.slice(0, idx - 1));
+  }, [ask]);
+
+  /* ---------- Sources panel focus ---------- */
+  const lastWithSources = useMemo(() => [...messages].reverse().find((m) => m.role === "assistant" && m.sources?.length), [messages]);
+  const activeMessage = messages.find((m) => m.id === activeId) ?? lastWithSources ?? null;
+  const activeQuestion = useMemo(() => {
+    if (!activeMessage) return "";
+    const i = messages.findIndex((m) => m.id === activeMessage.id);
+    return messages[i - 1]?.content ?? "";
+  }, [messages, activeMessage]);
+
+  const showSources = useCallback((msgId) => {
+    setActiveId(msgId);
+    if (!isWide) setSourcesOpen(true);
+  }, [isWide]);
+
+  const cite = useCallback((msgId, index) => {
+    setActiveId(msgId);
+    setHighlight({ msgId, index, nonce: Date.now() });
+    if (!isWide) setSourcesOpen(true);
+  }, [isWide]);
+
+  useEffect(() => {
+    if (!highlight) return;
+    const t = setTimeout(() => {
+      document.getElementById(`src-${highlight.msgId}-${highlight.index}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, isWide ? 30 : 320);
+    return () => clearTimeout(t);
+  }, [highlight, isWide]);
+
+  /* ---------- Scrolling ---------- */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && (messages.length > 0 || typing)) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [messages.length, typing]);
+
+  /* ---------- Keyboard ---------- */
+  useEffect(() => {
+    const onKey = (e) => {
+      const tag = e.target.tagName;
+      const editing = tag === "INPUT" || tag === "TEXTAREA" || e.target.isContentEditable;
+      if (e.key === "/" && !editing && !confirm) { e.preventDefault(); composerRef.current?.focus(); }
+      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") { e.preventDefault(); if (window.innerWidth < 768) setNavOpen((v) => !v); else setCollapsed((v) => !v); }
+      else if ((e.ctrlKey || e.metaKey) && e.key === ".") { e.preventDefault(); setSourcesOpen((v) => !v); }
+      else if (e.key === "Escape" && !confirm) { setNavOpen(false); setSourcesOpen(false); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirm, setCollapsed]);
+
+  /* ---------- View ---------- */
+  const notebookTitle = docInfo ? displayTitle(docInfo.originalName || docInfo.fileName) : hasDoc ? "Indexed document" : "Untitled notebook";
+  const notebookDescription = (() => {
+    if (upload.busy) return "Indexing a new document";
+    if (docState === "ready") return `${docInfo.fileType?.toUpperCase()} with ${docInfo.totalChunks?.toLocaleString()} indexed passages`;
+    if (docState === "ready-unknown") return `${backend.vectorsStored.toLocaleString()} indexed passages`;
+    if (docState === "missing") return "Document needs to be uploaded again";
+    if (docState === "unverified") return "Can't reach the server to check this document";
+    if (docState === "checking") return "Checking document status";
+    return "Add a document to start";
+  })();
+
+  const offline = backend.phase === "offline";
+  const canAsk = !offline && !upload.busy;
+  const placeholder = offline
+    ? "The server is offline"
+    : upload.busy ? "Wait for indexing to finish"
+    : hasDoc && docState !== "missing" ? "Ask a question about your document"
+    : "Upload a document first, then ask about it";
+  const showOnboarding = messages.length === 0 && !typing && (!hasDoc || docState === "missing");
 
   return (
-    <div className="app-shell h-screen flex overflow-hidden">
-      {sidebarOpen && <button aria-label="Close navigation" className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
-      <aside className={`app-sidebar w-72 flex-shrink-0 flex flex-col ${sidebarOpen ? "is-open" : ""}`}>
-        <div className="px-5 py-5 border-b border-white/8"><div className="flex items-center gap-3"><div className="brand-mark w-9 h-9 rounded-xl flex items-center justify-center"><BookOpen className="w-[18px] h-[18px] text-white" /></div><div><h1 className="text-white font-semibold text-base leading-none tracking-tight">NotebookLLM</h1><p className="text-slate-500 text-xs mt-1">Your document workspace</p></div><button aria-label="Close sidebar" className="ml-auto mobile-only text-slate-500 hover:text-white" onClick={() => setSidebarOpen(false)}><X className="w-4 h-4" /></button></div></div>
-        <div className="p-4 pt-6"><div className="flex items-center gap-2 mb-3"><FileUp className="w-3.5 h-3.5 text-violet-300" /><p className="source-heading">Source document</p></div><UploadZone onUploadSuccess={handleUploadSuccess} docReady={docReady} onRemove={removeDocument} docInfo={docInfo} /></div>
-        <div className="mt-auto px-4 py-4 border-t border-white/8"><div className="flex items-center gap-2 text-slate-600 text-xs"><Activity className="w-3.5 h-3.5 text-emerald-400" /><span>AI pipeline online</span></div><p className="text-slate-700 text-[11px] mt-2">Groq · Qdrant · LLM-as-judge</p></div>
-      </aside>
-      <main className="app-main flex-1 flex flex-col overflow-hidden">
-        <div className="topbar flex-shrink-0 px-4 sm:px-8 py-4 flex items-center justify-between"><div><div className="flex items-center gap-3"><button aria-label="Open navigation" className="mobile-only text-slate-400 hover:text-white" onClick={() => setSidebarOpen(true)}><Menu className="w-5 h-5" /></button><h2 className="text-white font-semibold text-sm">{docReady && docInfo ? docInfo.fileName : "NotebookLLM"}</h2></div><p className="text-slate-500 text-xs mt-1 ml-8 sm:ml-0">{docReady ? `${docInfo?.totalChunks} chunks indexed · answers grounded in document` : "Upload a source to start a grounded conversation"}</p></div><div className="flex items-center gap-3"><div className="hidden sm:block"><StatusBar refreshTrigger={docReady} /></div>{messages.length > 0 && <button onClick={() => setMessages([])} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-red-300 transition-colors px-3 py-1.5 rounded-lg hover:bg-red-400/10"><Trash2 className="w-3 h-3" />Clear chat</button>}</div></div>
-        <div className="chat-scroll flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-6">{messages.length === 0 && !typing && <div className="empty-state h-full flex flex-col items-center justify-center text-center select-none"><div className="empty-icon w-16 h-16 rounded-2xl flex items-center justify-center mb-5"><Sparkles className="w-7 h-7 text-violet-300" /></div><h2 className="text-white text-2xl sm:text-3xl font-semibold mb-3 tracking-tight">{docReady ? "Ready to answer" : "Ask better questions"}</h2><p className="text-slate-500 text-sm max-w-md leading-relaxed">{docReady ? "Ask anything about your document. Answers are grounded in its content and checked before you see them." : "Upload a PDF, TXT, or CSV and turn it into a clear, searchable knowledge base."}</p><div className="mt-8 flex flex-wrap items-center justify-center gap-2 max-w-lg">{[{ icon: Languages, label: "Multilingual" }, { icon: Layers, label: "Sub-query retrieval" }, { icon: ShieldCheck, label: "Grounded & verified" }].map(({ icon: Icon, label }) => <span key={label} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full feature-pill text-slate-400 text-xs"><Icon className="w-3.5 h-3.5 text-violet-300" />{label}</span>)}</div></div>}{messages.map((msg) => <ChatMessage key={msg.id} message={msg} />)}{typing && <TypingIndicator />}<div ref={chatEndRef} /></div>
-        <div className="composer-wrap flex-shrink-0 px-4 sm:px-8 py-4"><div className="composer flex items-end gap-3 rounded-2xl border p-3 transition-all duration-200 focus-within:border-violet-500/70"><textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} disabled={typing} placeholder={docReady ? "Ask anything about your document…" : "Upload a document to begin…"} rows={1} className="flex-1 bg-transparent resize-none text-sm text-slate-200 placeholder-slate-600 outline-none leading-relaxed disabled:cursor-not-allowed" style={{ minHeight: "24px", maxHeight: "128px" }} onInput={(e) => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 128) + "px"; }} /><button aria-label="Send message" onClick={sendMessage} disabled={!input.trim() || typing} className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ${input.trim() && !typing ? "bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-500/30 hover:scale-105" : "bg-slate-800 text-slate-600 cursor-not-allowed"}`}><Send className="w-[15px] h-[15px]" /></button></div><p className="text-slate-600 text-xs text-center mt-2">Enter to send · Shift+Enter for new line</p></div>
+    <div className="app-shell flex overflow-hidden bg-paper">
+      {(navOpen || (sourcesOpen && !isWide)) && (
+        <div className="backdrop" aria-hidden="true" onClick={() => { setNavOpen(false); setSourcesOpen(false); }} />
+      )}
+
+      <Sidebar
+        collapsed={collapsed}
+        onToggleCollapse={() => setCollapsed((v) => !v)}
+        open={navOpen}
+        onClose={() => setNavOpen(false)}
+        notebookTitle={notebookTitle}
+        messageCount={messages.filter((m) => m.role === "user").length}
+        docInfo={docInfo}
+        docState={docState}
+        onNewNotebook={askNewNotebook}
+        onOpenSources={() => { setNavOpen(false); if (!isWide) setSourcesOpen(true); }}
+        sourcesOpen={sourcesOpen}
+        theme={theme}
+        setTheme={setTheme}
+        backend={backend}
+      />
+
+      <main className="main-col flex-1 min-w-0 flex flex-col overflow-hidden">
+        <header className="h-14 flex items-center gap-2 px-3 sm:px-5 border-b border-line flex-shrink-0">
+          <button type="button" className="icon-btn md:hidden" onClick={() => setNavOpen(true)} aria-label="Open menu">
+            <Menu className="w-[18px] h-[18px]" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-[14px] font-semibold text-ink truncate">{notebookTitle}</h1>
+            <p className="text-[12px] text-muted truncate">{notebookDescription}</p>
+          </div>
+          <div className="hidden sm:block"><StatusBar backend={backend} onRetry={() => backend.refresh()} /></div>
+          {messages.length > 0 && (
+            <button type="button" className="icon-btn" onClick={askClearChat} aria-label="Clear conversation" title="Clear conversation">
+              <Eraser className="w-4 h-4" />
+            </button>
+          )}
+          <button type="button" className="icon-btn wide:hidden" onClick={() => setSourcesOpen(true)} aria-label="Show sources" aria-controls="sources-panel" aria-expanded={sourcesOpen} title="Sources (Ctrl .)">
+            <PanelRight className="w-4 h-4" />
+          </button>
+        </header>
+
+        {offline && (
+          <div className="flex items-start sm:items-center gap-3 px-4 sm:px-5 py-2.5 bg-bad-soft text-bad text-[13px] border-b border-line flex-shrink-0" role="alert">
+            <WifiOff className="w-4 h-4 flex-shrink-0 mt-0.5 sm:mt-0" aria-hidden="true" />
+            <p className="flex-1">Can't reach the NotebookLLM server. It may be waking up, which can take a minute.</p>
+            <button type="button" className="inline-flex items-center gap-1.5 font-medium underline-offset-2 hover:underline flex-shrink-0" onClick={() => backend.refresh()}>
+              <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+              Try again
+            </button>
+          </div>
+        )}
+
+        <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain">
+          <div className="mx-auto max-w-[760px] px-4 sm:px-6">
+            {showOnboarding ? (
+              <OnboardingState upload={upload} onFile={requestUpload} offline={offline} onRetryConnection={() => backend.refresh()} />
+            ) : messages.length === 0 && !typing ? (
+              <ReadyState docInfo={docInfo} onAsk={(q) => ask(q)} disabled={!canAsk} />
+            ) : (
+              <div className="py-6 sm:py-8 space-y-8" aria-live="polite">
+                {messages.map((m, i) => (
+                  <ChatMessage
+                    key={m.id}
+                    message={m}
+                    isLast={i === messages.length - 1}
+                    busy={typing || !canAsk}
+                    onRegenerate={regenerate}
+                    onCite={cite}
+                    onShowSources={showSources}
+                    isActive={activeMessage?.id === m.id}
+                    activeCite={highlight?.msgId === m.id ? highlight.index : null}
+                  />
+                ))}
+                {typing && <TypingIndicator since={pendingSince} />}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <Composer inputRef={composerRef} onSend={(q) => ask(q)} busy={typing} disabled={!canAsk} placeholder={placeholder} />
       </main>
+
+      <SourcesPanel
+        open={sourcesOpen}
+        onClose={() => setSourcesOpen(false)}
+        docInfo={docInfo}
+        docState={docState}
+        backend={backend}
+        upload={upload}
+        onFile={requestUpload}
+        onRemove={askRemove}
+        justIndexed={justIndexed}
+        activeMessage={activeMessage}
+        activeQuestion={activeQuestion}
+        highlight={highlight}
+        uploadInMain={showOnboarding && !offline}
+      />
+
+      <ConfirmDialog
+        key={confirm?.title ?? "closed"}
+        open={Boolean(confirm)}
+        title={confirm?.title}
+        body={confirm?.body}
+        confirmLabel={confirm?.confirmLabel}
+        tone={confirm?.tone}
+        onConfirm={confirm?.onConfirm ?? (() => {})}
+        onCancel={() => setConfirm(null)}
+        secondary={confirm?.secondary}
+      />
     </div>
   );
 }

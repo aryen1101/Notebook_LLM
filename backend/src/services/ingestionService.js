@@ -89,15 +89,30 @@ export async function ingestDocument(filePath, fileType) {
 
   console.log(`Chunks produced: ${chunks.length}`);
 
-  if (chunks.length === 0) throw new Error("Document produced zero chunks.");
+  if (chunks.length === 0) {
+    const err = new Error(
+      fileType === "pdf"
+        ? "No text could be extracted from this PDF. It is probably a scanned or image-only PDF — run it through OCR (or export it as a text-based PDF) and upload again."
+        : "The document is empty — no text could be extracted.",
+    );
+    err.status = 422;
+    throw err;
+  }
+
+  // Embed BEFORE touching the index, so a failed or interrupted upload
+  // (timeout, out-of-memory, bad file) leaves the previous document intact
+  // instead of an empty collection.
+  const embeddings = getEmbeddings();
+  const vectors = await embeddings.embedDocuments(chunks.map((c) => c.pageContent));
 
   await resetCollection();
 
-  await QdrantVectorStore.fromDocuments(chunks, getEmbeddings(), {
+  const store = new QdrantVectorStore(embeddings, {
     url: process.env.QDRANT_URL,
     apiKey: process.env.QDRANT_API_KEY,
     collectionName: COLLECTION_NAME,
   });
+  await store.addVectors(vectors, chunks);
 
   console.log(`Done — ${chunks.length} chunks stored in Qdrant`);
 

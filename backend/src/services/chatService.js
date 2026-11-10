@@ -1,6 +1,9 @@
 import { HuggingFaceTransformersEmbeddings } from "@langchain/community/embeddings/huggingface_transformers";
 import { QdrantVectorStore } from "@langchain/qdrant";
-import { COLLECTION_NAME } from "../config/qdrant.js";
+import { COLLECTION_NAME, isCollectionReady } from "../config/qdrant.js";
+
+const NO_DOCUMENT_ANSWER =
+  "No document has been uploaded yet. Upload a PDF, TXT, or CSV file first, then ask your question.";
 import { groq, CHAT_MODEL } from "../config/groq.js";
 import { detectLanguage, translate } from "./translator.js";
 import { rewriteQuery } from "./queryRewriting.js";
@@ -21,6 +24,20 @@ export async function chat(userQuery, history = []) {
     }
   }
   const isEnglish = /english/i.test(language);
+
+  // No indexed document: answer deterministically instead of letting the LLM
+  // improvise (it used to claim "the document doesn't contain this").
+  if (!(await isCollectionReady())) {
+    return {
+      answer: isEnglish ? NO_DOCUMENT_ANSWER : await translate(NO_DOCUMENT_ANSWER, language),
+      sources: [],
+      language,
+      rewrittenQuery: englishQuery,
+      subQueries: [],
+      judgment: null,
+      noDocument: true,
+    };
+  }
 
   const searchQuery = await rewriteQuery(englishQuery, history);
 

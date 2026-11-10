@@ -1,148 +1,155 @@
 import { useRef, useState } from "react";
-import { Upload, Loader2, CheckCircle2, X, AlertCircle } from "lucide-react";
-import { uploadDocument } from "../lib/api";
+import { useElapsed } from "../hooks/useElapsed";
+import { useFilePicker } from "../hooks/useFilePicker";
+import { Check, CircleAlert, LoaderCircle, Upload, X } from "lucide-react";
+import { FileIcon } from "./Brand";
+import { formatBytes } from "../lib/format";
 
-export function UploadZone({ onUploadSuccess, docReady, onRemove, docInfo }) {
-  const [dragging, setDragging]   = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [progress, setProgress]   = useState(0);
-  const [error, setError]         = useState(null);
-  const inputRef                  = useRef(null);
-
-  const handleFile = async (file) => {
-    if (!file) return;
-    const ext = file.name.split(".").pop().toLowerCase();
-    if (!["pdf", "txt", "csv"].includes(ext)) {
-      setError("Only PDF, TXT, and CSV files are supported.");
-      return;
-    }
-    if (file.size > 20 * 1024 * 1024) {
-      setError("Files must be smaller than 20 MB.");
-      return;
-    }
-    setError(null);
-    setUploading(true);
-    setProgress(0);
-    try {
-      const result = await uploadDocument(file, setProgress);
-      onUploadSuccess?.(result);
-    } catch (e) {
-      setError(e.response?.data?.error || "Upload failed. Please try again.");
-    } finally {
-      setUploading(false);
-    }
-  };
+export function UploadZone({ onFile, disabled = false, compact = false }) {
+  const [dragging, setDragging] = useState(false);
+  const picker = useFilePicker(onFile);
+  const depth = useRef(0);
 
   const onDrop = (e) => {
     e.preventDefault();
+    depth.current = 0;
     setDragging(false);
-    handleFile(e.dataTransfer.files[0]);
+    if (disabled) return;
+    const file = e.dataTransfer.files?.[0];
+    if (file) onFile(file);
   };
 
-  if (docInfo && docReady) {
-    return (
-      <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-            <div className="min-w-0">
-              <p className="text-emerald-400 text-xs font-medium">Indexed</p>
-              <p className="text-gray-400 text-xs truncate mt-0.5">{docInfo.fileName}</p>
-              <p className="text-gray-600 text-xs mt-0.5">{docInfo.totalChunks} chunks · {docInfo.fileType?.toUpperCase()}</p>
-            </div>
-          </div>
-          <button
-            onClick={onRemove}
-            className="text-gray-600 hover:text-red-400 transition-colors flex-shrink-0"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
+  return (
+    <div
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled}
+      aria-label="Upload a document. PDF, TXT or CSV, up to 20 MB."
+      onClick={() => !disabled && picker.open()}
+      onKeyDown={(e) => {
+        if ((e.key === "Enter" || e.key === " ") && !disabled) {
+          e.preventDefault();
+          picker.open();
+        }
+      }}
+      onDragEnter={(e) => { e.preventDefault(); depth.current += 1; setDragging(true); }}
+      onDragOver={(e) => e.preventDefault()}
+      onDragLeave={() => { depth.current -= 1; if (depth.current <= 0) setDragging(false); }}
+      onDrop={onDrop}
+      className={`dropzone group text-center ${compact ? "px-4 py-5" : "px-6 py-9 sm:py-11"} ${dragging ? "is-dragging" : ""} ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
+    >
+      {picker.input}
+      <span className={`mx-auto inline-flex items-center justify-center rounded-xl bg-surface border border-line shadow-sm text-accent-text transition-transform duration-200 group-hover:-translate-y-0.5 ${compact ? "w-9 h-9" : "w-11 h-11"} ${dragging ? "-translate-y-1" : ""}`}>
+        <Upload className={compact ? "w-4 h-4" : "w-5 h-5"} aria-hidden="true" />
+      </span>
+      <p className={`mt-3 font-medium text-ink ${compact ? "text-[13px]" : "text-[15px]"}`}>
+        {dragging ? "Drop to upload" : compact ? "Drop a file or browse" : "Drop a file here, or browse"}
+      </p>
+      <p className="mt-1 text-[12.5px] text-muted">PDF, TXT or CSV, up to 20 MB</p>
+      {!compact && (
+        <div className="mt-4 flex items-center justify-center gap-2" aria-hidden="true">
+          {["pdf", "txt", "csv"].map((ext) => (
+            <span key={ext} className="inline-flex items-center gap-1.5 h-7 pl-1 pr-2 rounded-md bg-surface border border-line text-[11.5px] font-medium text-ink-2">
+              <FileIcon ext={ext} size="sm" />
+              {ext.toUpperCase()}
+            </span>
+          ))}
         </div>
-      </div>
-    );
-  }
+      )}
+    </div>
+  );
+}
 
-  if (docInfo && !docReady) {
-    return (
-      <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-            <div className="min-w-0">
-              <p className="text-amber-400 text-xs font-medium">Re-upload needed</p>
-              <p className="text-gray-400 text-xs truncate mt-0.5">{docInfo.fileName}</p>
-            </div>
-          </div>
-          <button onClick={onRemove} className="text-gray-600 hover:text-red-400 transition-colors flex-shrink-0">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-        <button
-          onClick={() => inputRef.current?.click()}
-          className="mt-2 w-full text-xs text-amber-400 hover:text-amber-300 transition-colors text-center py-1"
-        >
-          Click to re-upload
-        </button>
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".pdf,.txt,.csv"
-          className="hidden"
-          onChange={(e) => handleFile(e.target.files[0])}
-        />
-      </div>
-    );
-  }
+function StepIcon({ status }) {
+  if (status === "done") return <span className="w-5 h-5 rounded-full bg-ok text-surface inline-flex items-center justify-center"><Check className="w-3 h-3" strokeWidth={3} aria-hidden="true" /></span>;
+  if (status === "active") return <span className="w-5 h-5 rounded-full bg-accent-soft text-accent-text inline-flex items-center justify-center"><LoaderCircle className="w-3 h-3 animate-spin" aria-hidden="true" /></span>;
+  if (status === "failed") return <span className="w-5 h-5 rounded-full bg-bad text-surface inline-flex items-center justify-center"><X className="w-3 h-3" strokeWidth={3} aria-hidden="true" /></span>;
+  return <span className="w-5 h-5 rounded-full border-[1.5px] border-line-strong inline-block" aria-hidden="true" />;
+}
+
+const SERVER_STEPS = ["Extract text", "Split into chunks", "Create embeddings", "Store vectors in Qdrant"];
+
+/**
+ * Shows only states we can observe. Upload % comes from the browser; the four
+ * server steps happen inside one request, so they share a single in-progress
+ * state and are only marked done when the server responds successfully.
+ */
+export function UploadProgress({ upload, onRetry, onDismiss }) {
+  const elapsed = useElapsed(upload.phase === "processing" ? upload.processingAt : null);
+  const { phase, stage, file } = upload;
+
+  const uploadStatus = phase === "uploading" ? "active" : phase === "processing" ? "done" : stage === "upload" || stage === "validate" ? "failed" : "done";
+  const serverStatus = phase === "processing" ? "active" : phase === "error" && stage === "processing" ? "failed" : "pending";
 
   return (
-    <div>
-      <div
-        onClick={() => !uploading && inputRef.current?.click()}
-        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={onDrop}
-        role="button"
-        tabIndex={uploading ? -1 : 0}
-        aria-label="Upload a PDF, TXT, or CSV document"
-        onKeyDown={(e) => {
-          if ((e.key === "Enter" || e.key === " ") && !uploading) inputRef.current?.click();
-        }}
-        className={`rounded-xl border-2 border-dashed p-6 text-center cursor-pointer transition-all duration-200 ${
-          dragging ? "border-violet-500 bg-violet-500/10" : "border-gray-700 hover:border-gray-500 hover:bg-gray-700/30"
-        } ${uploading ? "cursor-not-allowed" : ""}`}
-      >
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".pdf,.txt,.csv"
-          className="hidden"
-          onChange={(e) => handleFile(e.target.files[0])}
-        />
-        {uploading ? (
-          <div className="space-y-3">
-            <Loader2 className="w-8 h-8 text-violet-400 animate-spin mx-auto" />
-            <p className="text-gray-400 text-sm">Indexing document…</p>
-            <div className="w-full bg-gray-700 rounded-full h-1 overflow-hidden">
-              <div className="h-full bg-violet-500 rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
-            </div>
-            <p className="text-gray-600 text-xs">{progress}%</p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <div className="w-10 h-10 rounded-lg bg-gray-700 flex items-center justify-center mx-auto">
-              <Upload className="w-5 h-5 text-gray-400" />
-            </div>
-            <p className="text-gray-300 text-sm font-medium">Drop file here</p>
-            <p className="text-gray-600 text-xs">or click to browse · max 20 MB</p>
-            <div className="flex items-center justify-center gap-2 pt-1">
-              {["PDF", "TXT", "CSV"].map((ext) => (
-                <span key={ext} className="px-2 py-0.5 bg-gray-700 rounded text-gray-500 text-xs font-mono">{ext}</span>
-              ))}
-            </div>
-          </div>
+    <div className="panel p-4 shadow-sm anim-pop" role="status" aria-live="polite">
+      <div className="flex items-center gap-3">
+        <FileIcon ext={file?.ext} />
+        <div className="min-w-0 flex-1">
+          <p className="text-[13.5px] font-medium text-ink truncate">{file?.name || "Document"}</p>
+          <p className="text-[12px] text-muted">
+            {phase === "error" ? "Not indexed" : phase === "processing" ? `Indexing on the server, ${elapsed}s` : `Uploading ${formatBytes(file?.size) ?? ""}`}
+          </p>
+        </div>
+        {phase === "error" && (
+          <button type="button" className="icon-btn" onClick={onDismiss} aria-label="Dismiss">
+            <X className="w-4 h-4" />
+          </button>
         )}
       </div>
-      {error && <p className="mt-2 text-red-400 text-xs text-center">{error}</p>}
+
+      {stage !== "validate" && (
+        <ol className="mt-4 space-y-3">
+          <li className="flex gap-3">
+            <StepIcon status={uploadStatus} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between text-[13px]">
+                <span className="text-ink font-medium">Upload file</span>
+                {phase === "uploading" && <span className="text-muted tabular-nums">{upload.progress}%</span>}
+              </div>
+              {phase === "uploading" && (
+                <div className="bar mt-2" aria-hidden="true"><span style={{ width: `${upload.progress}%` }} /></div>
+              )}
+            </div>
+          </li>
+          <li className="flex gap-3">
+            <StepIcon status={serverStatus} />
+            <div className="flex-1 min-w-0">
+              <p className={`text-[13px] font-medium ${serverStatus === "pending" ? "text-muted" : "text-ink"}`}>Index on the server</p>
+              <ul className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1">
+                {SERVER_STEPS.map((s) => (
+                  <li key={s} className="flex items-center gap-1.5 text-[12px] text-muted">
+                    <span className={`dot ${serverStatus === "active" ? "thinking-dot text-accent" : ""}`} aria-hidden="true" />
+                    {s}
+                  </li>
+                ))}
+              </ul>
+              {phase === "processing" && <div className="bar is-indeterminate mt-2.5" aria-hidden="true"><span /></div>}
+              {phase === "processing" && elapsed >= 20 && (
+                <p className="mt-2 text-[12px] text-muted">Large files take longer. If the server was asleep, the first upload can take over a minute.</p>
+              )}
+            </div>
+          </li>
+          <li className="flex gap-3">
+            <StepIcon status="pending" />
+            <p className="text-[13px] font-medium text-muted">Ready for questions</p>
+          </li>
+        </ol>
+      )}
+
+      {phase === "error" && (
+        <div className="mt-4 flex items-start gap-2 rounded-lg bg-bad-soft text-bad px-3 py-2.5 text-[13px]" role="alert">
+          <CircleAlert className="w-4 h-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
+          <div className="flex-1">
+            <p>{upload.error}</p>
+            {stage !== "validate" && (
+              <button type="button" onClick={onRetry} className="mt-1.5 font-medium underline underline-offset-2">
+                Choose a file to try again
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

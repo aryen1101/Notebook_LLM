@@ -3,7 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="NotebookLLM: upload a document, ask questions, and get answers that cite the passages they came from." />
+    <meta name="theme-color" content="#F7F6F2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#17161B" media="(prefers-color-scheme: dark)" />
+    <script>
+      // Apply the saved theme before first paint so a forced Light/Dark choice
+      // doesn't flash the OS theme on load. Mirrors applyTheme() in src/lib/theme.js.
+      (function () {
+        try {
+          var t = JSON.parse(localStorage.getItem("nl_theme"));
+          if (t !== "light" && t !== "dark") return;
+          document.documentElement.setAttribute("data-theme", t);
+          var c = t === "dark" ? "#17161B" : "#F7F6F2";
+          document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) { m.content = c; });
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap"
+      rel="stylesheet"
+    />
     <title>NotebookLLM</title>
   </head>
   <body>
