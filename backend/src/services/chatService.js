@@ -91,7 +91,7 @@ export async function chat(userQuery, history = []) {
   if (!docUploaded) {
     systemPrompt = `You are a helpful assistant. No document has been uploaded yet. No matter what the user asks, do not answer any questions. Only tell them to upload a PDF, TXT, or CSV file first.`;
   } else if (contextBlock) {
-    systemPrompt = `You are a helpful assistant. Answer ONLY using the context below. If the answer is not in the context, say you don't know. Always cite the Source number.
+    systemPrompt = `You are a helpful assistant. Answer ONLY using the context below. If the answer is not in the context, say you don't know. Always cite sources inline in exactly this form: [Source 2]. Do not use any other citation format (no 【】, no line ranges).
 
 CONTEXT:
 ${contextBlock}`;

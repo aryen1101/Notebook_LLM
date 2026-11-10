@@ -52,13 +52,15 @@ export function displayTitle(fileName = "") {
  */
 export function linkCitations(text = "", sourceCount = 0) {
   if (!sourceCount) return text;
-  const pattern = /\[Source\s+(\d+)\]|\(Source\s+(\d+)\)|\bSource\s+(\d+)\b/g;
+  // 【Source 4†L5-L9】 is the native citation style of gpt-oss models; swallow
+  // the whole bracket (and the line-range suffix) so no stray glyphs remain.
+  const pattern = /【\s*Source\s+(\d+)[^】]*】|\[Source\s+(\d+)\]|\(Source\s+(\d+)\)|\bSource\s+(\d+)\b/g;
   return text
     .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
     .map((part, i) => {
       if (i % 2 === 1) return part; // code
-      return part.replace(pattern, (match, a, b, c) => {
-        const n = Number(a || b || c);
+      return part.replace(pattern, (match, a, b, c, d) => {
+        const n = Number(a || b || c || d);
         if (n < 1 || n > sourceCount) return match;
         return `[${n}](#cite-${n})`;
       });
